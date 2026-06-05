@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VisionAI - Sonic Control Center</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&family=JetBrains+Mono:wght@500&display=swap');
+        
+        :root {
+            --brand-blue: #2563eb;
+            --deep-blue: #1e3a8a;
+            --ui-white: #ffffff;
+            --ui-bg: #f8fafc;
+        }
+
+        body { 
+            background-color: var(--ui-bg); 
+            color: #1e293b; 
+            font-family: 'Plus Jakarta Sans', sans-serif; 
+            overflow: hidden; 
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            padding: 1.5rem;
+        }
+
+        .glass-panel { 
+            background: white;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+        }
+
+        .hud-font { font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 800; }
+
+        .control-btn { 
+            width: 80px; height: 80px; 
+            background: white; 
+            border: 2px solid #e2e8f0; 
+            border-radius: 20px;
+            display: flex; align-items: center; justify-content: center;
+            transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1); 
+            cursor: pointer; 
+            color: var(--brand-blue);
+            position: relative;
+            box-shadow: 0 4px 0px #cbd5e1;
+            user-select: none;
+        }
+
+        .control-btn:active, .btn-active { 
+            background: var(--brand-blue) !important; 
+            color: white !important; 
+            border-color: var(--brand-blue) !important; 
+            transform: translateY(4px); 
+            box-shadow: 0 0px 0px transparent !important;
+        }
+
+        /* Safety Lock Overlay */
+        #safety-overlay {
+            display: none;
+            position: absolute;
+            inset: 0;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(12px);
+            z-index: 100;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            border-radius: 3rem;
+            border: 4px solid #ef4444;
+        }
+
+        #safety-overlay.unlocked { border-color: #22c55e; }
+
+        .system-off .control-btn, .safety-locked .control-btn {
+            opacity: 0.2;
+            cursor: not-allowed;
+            pointer-events: none;
+            filter: grayscale(1);
+        }
+
+        input[type=range] { 
+            appearance: none; -webkit-appearance: none; 
+            width: 100%; background: #e2e8f0; height: 8px; border-radius: 5px; 
+        }
+
+        input[type=range]::-webkit-slider-thumb { 
+            -webkit-appearance: none; height: 24px; width: 24px; 
+            border-radius: 50%; background: var(--brand-blue); cursor: pointer; 
+            border: 3px solid #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.1); 
+        }
+
+        .proximity-alert { animation: alert-pulse 0.6s infinite alternate; }
+        @keyframes alert-pulse {
+            from { background-color: white; }
+            to { background-color: #fee2e2; }
+        }
+
+        .speed-step {
+            width: 40px; height: 40px;
+            display: flex; align-items: center; justify-content: center;
+            border-radius: 10px; background: white;
+            font-weight: 800; font-size: 13px;
+            cursor: pointer; border: 2px solid #e2e8f0; transition: all 0.2s;
+            color: #64748b;
+        }
+        .speed-step.active {
+            background: var(--brand-blue); border-color: var(--brand-blue);
+            color: white;
+            box-shadow: 0 4px 10px rgba(37, 99, 235, 0.3);
+        }
+
+        .power-btn-active {
+            background: #ef4444 !important;
+            color: white !important;
+            border-color: #dc2626 !important;
+        }
+
+        .system-timer, .live-clock {
+            background: white; border: 1px solid #e2e8f0;
+            padding: 0.5rem 1rem; border-radius: 0.75rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem; color: var(--brand-blue);
+            display: flex; align-items: center; gap: 0.4rem;
+        }
+
+        #log {
+            scrollbar-width: thin;
+            scrollbar-color: #cbd5e1 transparent;
+        }
+
+        /* Fixed Grid for Control Pad to prevent layout shifts */
+        .control-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 80px);
+            grid-template-rows: repeat(3, 80px);
+            gap: 1.5rem;
+            justify-content: center;
+            align-content: center;
+        }
+    </style>
+</head>
+<body id="main-body" class="system-off">
+
+    <header class="flex justify-between items-center mb-4 shrink-0">
+        <div class="flex items-center gap-4">
+            <div class="p-3 bg-blue-600 rounded-xl shadow-lg shadow-blue-100">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            </div>
+            <div>
+                <h1 class="hud-font text-2xl tracking-tight text-blue-900">VISION<span class="text-blue-500 font-light">AI</span></h1>
+                <p id="status-text" class="text-[9px] font-extrabold text-slate-400 uppercase tracking-[0.2em]">Disconnected • Standby</p>
+            </div>
+            <!-- Added Live Clock Component -->
+            <div class="live-clock ml-4 border-l-2 pl-4 border-slate-100">
+                <span class="text-[8px] font-extrabold opacity-40 uppercase">IST:</span>
+                <span id="live-time-display">00:00:00 AM</span>
+            </div>
+        </div>
+        
+        <div class="flex gap-2">
+            <button id="sos-btn" class="bg-red-50 hover:bg-red-100 text-red-600 border-2 border-red-100 px-4 py-2 rounded-xl font-extrabold text-[10px] uppercase tracking-widest flex items-center gap-2 transition-colors">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                <span>SOS</span>
+            </button>
+            <button id="power-btn" class="px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 border-2 border-slate-100 rounded-xl font-extrabold text-[10px] uppercase tracking-widest flex items-center gap-2">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
+                <span id="power-label">Ignition</span>
+            </button>
+            <button id="connect-btn" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-extrabold text-[10px] uppercase tracking-widest shadow-md">Link Device</button>
+        </div>
+    </header>
+
+    <div class="flex-1 grid grid-cols-12 gap-6 min-h-0">
+        
+        <!-- Left Panel: Telemetry -->
+        <div class="col-span-4 flex flex-col gap-4 min-h-0">
+            <div id="distance-panel" class="glass-panel p-6 rounded-[2rem] flex flex-col items-center justify-center text-center shrink-0">
+                <p class="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Obstacle Range</p>
+                <div class="flex items-baseline gap-1">
+                    <span id="ui-dist" class="hud-font text-6xl text-blue-900">--</span>
+                    <span class="text-xs text-slate-400 font-bold uppercase">cm</span>
+                </div>
+                <div id="proximity-label" class="text-[10px] font-extrabold mt-2 text-blue-400">WAITING FOR SENSOR...</div>
+            </div>
+
+            <div class="glass-panel p-6 rounded-[2rem] flex flex-col items-center justify-center text-center shrink-0">
+                <p class="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Engine Thrust</p>
+                <div class="flex items-baseline gap-1">
+                    <span id="ui-speed" class="hud-font text-5xl text-blue-600">000</span>
+                    <span class="text-xs text-slate-400 font-bold uppercase">pwm</span>
+                </div>
+            </div>
+
+            <div class="glass-panel flex-1 p-5 rounded-[2rem] flex flex-col overflow-hidden">
+                <div class="flex justify-between items-center mb-3">
+                    <h3 class="text-[9px] font-extrabold text-slate-400 tracking-widest uppercase">Telemetry Logs</h3>
+                    <div class="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
+                </div>
+                <div id="log" class="flex-1 overflow-y-auto text-[10px] font-medium text-slate-600 space-y-2 pr-1">
+                    <div class="p-2 bg-slate-50 rounded-lg border border-slate-100">> System Ready</div>
+                </div>
+                <button id="refresh-btn" class="mt-3 py-2 w-full bg-slate-50 text-slate-400 border border-slate-200 rounded-lg text-[9px] uppercase font-extrabold hover:bg-white hover:text-blue-600 transition-all">Clear Logs</button>
+            </div>
+        </div>
+
+        <!-- Right Panel: Main Controls -->
+        <div class="col-span-8 glass-panel rounded-[2.5rem] p-8 flex flex-col relative overflow-hidden min-h-0">
+            
+            <div id="safety-overlay">
+                <div class="text-center">
+                    <div id="safety-icon" class="mb-4 bg-red-100 p-5 rounded-full inline-block">
+                        <svg class="text-red-500 w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                    </div>
+                    <h2 id="safety-title" class="hud-font text-4xl text-slate-900 mb-1">OBSTACLE!</h2>
+                    <p id="safety-msg" class="text-slate-500 font-bold text-xs tracking-widest mb-6 uppercase">Safety Protocol Engaged</p>
+                    <div id="safety-timer" class="hud-font text-8xl text-blue-600">5</div>
+                </div>
+            </div>
+
+            <div class="flex justify-between items-center mb-6 shrink-0">
+                <div class="flex gap-2">
+                    <button id="scan-btn" class="px-6 py-2 bg-blue-50 text-blue-600 border-2 border-blue-100 rounded-xl font-extrabold text-[10px] uppercase tracking-widest">Scan Radar OFF</button>
+                    <button id="ultra-btn" class="px-6 py-2 bg-blue-600 text-white rounded-xl font-extrabold text-[10px] uppercase tracking-widest shadow-md">Proximity ON</button>
+                </div>
+                <div class="system-timer">
+                    <span class="text-[8px] font-extrabold opacity-40 uppercase">Elapsed:</span>
+                    <span id="on-timer-display">00:00</span>
+                </div>
+            </div>
+
+            <!-- Speed Controls -->
+            <div class="w-full max-w-md mx-auto space-y-4 mb-8 shrink-0">
+                <div class="flex justify-between items-center gap-2" id="speed-steps-container"></div>
+                <div class="px-4">
+                    <input type="range" min="0" max="9" value="5" id="speed-slider">
+                    <div class="flex justify-between mt-2">
+                        <span class="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest">Sensitivity Level</span>
+                        <span id="speed-lvl" class="text-[10px] font-extrabold text-blue-600 uppercase">Step 5</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Joystick Grid -->
+            <div class="flex-1 flex flex-col items-center justify-center min-h-0">
+                <div class="control-grid">
+                    <div></div>
+                    <button class="control-btn" id="btn-W">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M18 15l-6-6-6 6"/></svg>
+                    </button>
+                    <div></div>
+
+                    <button class="control-btn" id="btn-A">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M15 18l-6-6 6-6"/></svg>
+                    </button>
+                    <button class="w-20 h-20 rounded-2xl bg-slate-50 border-4 border-white shadow-lg flex items-center justify-center group active:scale-95 transition-all relative" id="btn-Z">
+                        <div class="w-8 h-8 rounded-lg bg-red-500 shadow-md group-active:bg-red-600"></div>
+                        <span class="absolute -bottom-6 text-[8px] font-extrabold uppercase tracking-widest text-slate-400">Manual Brake</span>
+                    </button>
+                    <button class="control-btn" id="btn-D">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M9 18l6-6-6-6"/></svg>
+                    </button>
+
+                    <div></div>
+                    <button class="control-btn" id="btn-S">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M6 9l6 6 6-6"/></svg>
+                    </button>
+                    <div></div>
+                </div>
+            </div>
+            
+            <div id="instruction-text" class="text-center text-[9px] font-extrabold text-slate-400 uppercase tracking-[0.4em] mt-6 shrink-0">
+                STANDBY • ENGAGE IGNITION
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let port, writer, reader;
+        let isSystemOn = false;
+        let isScanOn = false;
+        let isSafetyLocked = false;
+        let countdownInterval = null;
+        let startTime = null;
+        let timerInterval = null;
+
+        // Elements
+        const scanBtn = document.getElementById("scan-btn");
+        const logEl = document.getElementById('log');
+        const speedIndicator = document.getElementById('ui-speed');
+        const distIndicator = document.getElementById('ui-dist');
+        const bodyEl = document.getElementById('main-body');
+        const powerBtn = document.getElementById('power-btn');
+        const powerLabel = document.getElementById('power-label');
+        const instructionText = document.getElementById('instruction-text');
+        const timerDisplay = document.getElementById('on-timer-display');
+        const sosBtn = document.getElementById('sos-btn');
+        const safetyOverlay = document.getElementById('safety-overlay');
+        const safetyTimerText = document.getElementById('safety-timer');
+        const safetyTitle = document.getElementById('safety-title');
+        const safetyMsg = document.getElementById('safety-msg');
+        const liveTimeDisplay = document.getElementById('live-time-display');
+
+        // India Live Clock Logic
+        function updateLiveTime() {
+            const now = new Date();
+            const options = { 
+                timeZone: 'Asia/Kolkata', 
+                hour: '2-digit', 
+                minute: '2-digit', 
+                second: '2-digit', 
+                hour12: true 
+            };
+            liveTimeDisplay.innerText = now.toLocaleTimeString('en-IN', options);
+        }
+        setInterval(updateLiveTime, 1000);
+        updateLiveTime();
+
+        // Speed UI Generation
+        const speedContainer = document.getElementById('speed-steps-container');
+        for(let i=0; i<=9; i++) {
+            const step = document.createElement('div');
+            step.className = `speed-step ${i === 5 ? 'active' : ''}`;
+            step.innerText = i;
+            step.id = `step-${i}`;
+            step.onclick = () => { if(isSystemOn && !isSafetyLocked) updateSpeed(i); };
+            speedContainer.appendChild(step);
+        }
+
+        async function triggerSOS() {
+            addLog("EMERGENCY: SOS BROADCAST", "text-red-600 font-bold");
+
+            if (isSystemOn) toggleSystem();
+            send('S');
+
+            // Get GPS location
+            navigator.geolocation.getCurrentPosition(async (pos) => {
+                const lat = pos.coords.latitude;
+                const lon = pos.coords.longitude;
+
+                try {
+                    const response = await fetch("/api/sos", {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json"
+                        },
+                        body: JSON.stringify({
+                            lat: lat,
+                            lon: lon
+                        })
+                    });
+
+                    const data = await response.json();
+
+                    if (data.status === "sent") {
+                        addLog("SOS SENT TO EMERGENCY CONTACT", "text-red-600");
+                    } else {
+                        addLog("SOS FAILED", "text-red-600");
+                    }
+
+                } catch (err) {
+                    addLog("SOS ERROR: " + err, "text-red-600");
+                }
+            });
+
+            bodyEl.classList.add('proximity-alert');
+
+            setTimeout(() => {
+                bodyEl.classList.remove('proximity-alert');
+            }, 3000);
+        }
+
+        sosBtn.onclick = triggerSOS;
+
+        function updateTimer() {
+            if (!startTime) return;
+            const now = Date.now();
+            const diff = Math.floor((now - startTime) / 1000);
+            const mins = Math.floor(diff / 60).toString().padStart(2, '0');
+            const secs = (diff % 60).toString().padStart(2, '0');
+            timerDisplay.innerText = `${mins}:${secs}`;
+        }
+
+        function startCountdown() {
+            if (countdownInterval) clearInterval(countdownInterval);
+            isSafetyLocked = true;
+            bodyEl.classList.add('safety-locked');
+            safetyOverlay.style.display = 'flex';
+            safetyOverlay.classList.remove('unlocked');
+            
+            let count = 5;
+            safetyTimerText.innerText = count;
+            addLog("AUTO-LOCK: OBSTACLE DETECTED", "text-red-500 font-bold");
+
+            countdownInterval = setInterval(() => {
+                count--;
+                if (count > 0) {
+                    safetyTimerText.innerText = count;
+                } else {
+                    clearInterval(countdownInterval);
+                    safetyOverlay.classList.add('unlocked');
+                    safetyTitle.innerText = "READY";
+                    safetyMsg.innerText = "CLEAR TO PROCEED";
+                    safetyTimerText.innerText = "OK";
+                    isSafetyLocked = false;
+                    bodyEl.classList.remove('safety-locked');
+                    setTimeout(() => { 
+                        if (!isSafetyLocked) {
+                            safetyOverlay.style.display = 'none';
+                            safetyTitle.innerText = "OBSTACLE!";
+                            safetyMsg.innerText = "Safety Protocol Engaged";
+                        }
+                    }, 1500);
+                }
+            }, 1000);
+        }
+
+        function toggleSystem() {
+            isSystemOn = !isSystemOn;
+            if (isSystemOn) {
+                bodyEl.classList.remove('system-off');
+                powerBtn.classList.add('power-btn-active');
+                powerLabel.innerText = "Kill Engine";
+                instructionText.innerText = "SYSTEM ACTIVE • MANUAL CONTROL READY";
+                addLog("Ignition: ONLINE", "text-blue-600");
+                startTime = Date.now();
+                timerInterval = setInterval(updateTimer, 1000);
+                send('1');
+            } else {
+                bodyEl.classList.add('system-off');
+                powerBtn.classList.remove('power-btn-active');
+                powerLabel.innerText = "Ignition";
+                instructionText.innerText = "STANDBY • ENGAGE IGNITION";
+                addLog("Engine: OFFLINE", "text-slate-400");
+                clearInterval(timerInterval);
+                timerDisplay.innerText = "00:00";
+                send('S');
+                send('0');
+            }
+        }
+
+        function updateSpeed(val) {
+            if(!isSystemOn || isSafetyLocked) return;
+            send(val.toString());
+            document.getElementById('speed-slider').value = val;
+            document.getElementById('speed-lvl').innerText = `Step ${val}`;
+            document.querySelectorAll('.speed-step').forEach(s => s.classList.remove('active'));
+            document.getElementById(`step-${val}`).classList.add('active');
+        }
+
+        async function connect() {
+            try {
+                port = await navigator.serial.requestPort();
+                await port.open({ baudRate: 9600 });
+                writer = port.writable.getWriter();
+                reader = port.readable.getReader();
+                document.getElementById('status-text').innerText = "LINK ESTABLISHED • ACTIVE";
+                document.getElementById('status-text').className = "text-[9px] font-extrabold text-blue-600 uppercase tracking-widest";
+                addLog("Serial Link: ESTABLISHED", "text-blue-600");
+                readLoop(); 
+            } catch (err) {
+                addLog("Link Failed: " + err.message, "text-red-500");
+            }
+        }
+
+        async function readLoop() {
+            const decoder = new TextDecoder();
+            let buffer = "";
+            while (port.readable && reader) {
+                try {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value);
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop(); 
+                    for (const line of lines) {
+                        const trimmed = line.trim();
+                        if (trimmed === "STOP_5S") startCountdown();
+                        else if (trimmed.startsWith("DATA,")) processTelemetry(trimmed);
+                    }
+                } catch (e) { break; }
+            }
+        }
+
+        function processTelemetry(data) {
+            const parts = data.split(",");
+            if (parts.length >= 3) {
+                const pwm = parts[1];
+                const dist = parseInt(parts[2]);
+                speedIndicator.innerText = pwm.padStart(3, '0');
+                distIndicator.innerText = isNaN(dist) ? "--" : dist;
+                updateSafetyUI(dist);
+            }
+        }
+
+        function updateSafetyUI(dist) {
+            const panel = document.getElementById('distance-panel');
+            const label = document.getElementById('proximity-label');
+            if (dist > 0 && dist <= 10) {
+                panel.classList.add('proximity-alert');
+                distIndicator.className = "hud-font text-6xl text-red-600";
+                label.innerText = "DANGER: IMPACT IMMINENT";
+                label.className = "text-[10px] font-extrabold mt-2 text-red-600";
+            } else if (dist <= 25) {
+                panel.classList.remove('proximity-alert');
+                distIndicator.className = "hud-font text-6xl text-orange-500";
+                label.innerText = "CAUTION: NEARBY OBJECT";
+                label.className = "text-[10px] font-extrabold mt-2 text-orange-500";
+            } else {
+                panel.classList.remove('proximity-alert');
+                distIndicator.className = "hud-font text-6xl text-blue-900";
+                label.innerText = "SECTOR CLEAR";
+                label.className = "text-[10px] font-extrabold mt-2 text-blue-400";
+            }
+        }
+
+        async function send(cmd) {
+            if (!writer || (isSafetyLocked && cmd !== 'S' && cmd !== '0')) return;
+            try { await writer.write(new TextEncoder().encode(cmd)); } 
+            catch (e) { console.error(e); }
+        }
+
+        function addLog(msg, color = "text-slate-600") {
+            const div = document.createElement('div');
+            div.className = `p-2 bg-slate-50 rounded-lg border border-slate-100 ${color}`;
+            div.innerText = `> ${msg}`;
+            logEl.appendChild(div);
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        const bindControl = (id, cmdOn) => {
+            const el = document.getElementById(id);
+            const start = (e) => { 
+                if(!isSystemOn || isSafetyLocked) return;
+                e.preventDefault(); 
+                send(cmdOn); 
+                el.classList.add('btn-active'); 
+            };
+            const end = () => { 
+                if(!isSystemOn || isSafetyLocked) return;
+                send('S'); 
+                el.classList.remove('btn-active'); 
+            };
+            el.onmousedown = el.ontouchstart = start;
+            el.onmouseup = el.onmouseleave = el.ontouchend = end;
+        };
+
+        bindControl('btn-W', 'F'); 
+        bindControl('btn-S', 'B'); 
+        bindControl('btn-A', 'L'); 
+        bindControl('btn-D', 'R');
+        
+        document.getElementById('btn-Z').onmousedown = () => { 
+            if(!isSystemOn || isSafetyLocked) return;
+            send('S'); 
+            addLog("MANUAL BRAKE ENGAGED"); 
+        };
+
+        // Keyboard Logic
+        const keyMap = { 'w': 'btn-W', 'a': 'btn-A', 's': 'btn-S', 'd': 'btn-D' };
+        const activeKeys = new Set();
+
+        window.onkeydown = (e) => {
+            const key = e.key.toLowerCase();
+            if (key === 'x') { triggerSOS(); return; }
+            if (!isSystemOn || isSafetyLocked) return;
+            if (/[0-9]/.test(key)) { updateSpeed(key); return; }
+            if (key === 'z' || key === ' ') { send('S'); return; }
+            
+            if (keyMap[key] && !activeKeys.has(key)) {
+                activeKeys.add(key);
+                send({'w':'F','a':'L','s':'B','d':'R'}[key]);
+                document.getElementById(keyMap[key]).classList.add('btn-active');
+            }
+        };
+
+        window.onkeyup = (e) => {
+            const key = e.key.toLowerCase();
+            if (keyMap[key]) {
+                activeKeys.delete(key);
+                send('S');
+                document.getElementById(keyMap[key]).classList.remove('btn-active');
+            }
+        };
+
+        powerBtn.onclick = toggleSystem;
+        document.getElementById('speed-slider').oninput = function() { updateSpeed(this.value); };
+        document.getElementById('connect-btn').onclick = connect;
+        document.getElementById('refresh-btn').onclick = () => { logEl.innerHTML = ""; addLog("Session Logs Cleared"); };
+        
+        scanBtn.onclick = () => {
+            if(!isSystemOn || isSafetyLocked) return;
+            isScanOn = !isScanOn;
+            if(isScanOn) {
+                send('Q'); scanBtn.innerText = "Scan ON";
+                scanBtn.className = "px-6 py-2 bg-blue-600 text-white rounded-xl font-extrabold text-[10px] uppercase shadow-md";
+                addLog("Radar: 360 Scan Active");
+            } else {
+                send('E'); scanBtn.innerText = "Scan OFF";
+                scanBtn.className = "px-6 py-2 bg-blue-50 text-blue-600 border-2 border-blue-100 rounded-xl font-extrabold text-[10px] uppercase";
+                addLog("Radar: 360 Scan Disabled");
+            }
+        };
+
+        let ultraOn = true;
+        const ultraBtn = document.getElementById("ultra-btn");
+        ultraBtn.onclick = () => {
+            if(!isSystemOn || isSafetyLocked) return;
+            ultraOn = !ultraOn;
+            if(ultraOn) {
+                send('U'); ultraBtn.innerText = "Proximity ON";
+                ultraBtn.classList.replace("bg-red-500", "bg-blue-600");
+                addLog("Sensors: Proximity Guard Active");
+            } else {
+                send('u'); ultraBtn.innerText = "Proximity OFF";
+                ultraBtn.classList.replace("bg-blue-600", "bg-red-500");
+                addLog("Sensors: Proximity Guard Disabled", "text-red-500");
+            }
+        };
+    </script>
+</body>
+</html>

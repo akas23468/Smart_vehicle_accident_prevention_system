@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VisionAI Hub - Smart Vehicle OS</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.css" />
+    <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap');
+
+        :root {
+            --brand-primary: #2563eb;
+            --brand-glow: rgba(37, 99, 235, 0.4);
+            --bg-main: #f8fafc;
+            --sidebar-bg: #ffffff;
+        }
+
+        body {
+            background: var(--bg-main);
+            color: #1e293b;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            overflow: hidden;
+        }
+
+        .authInput {
+            width: 100%;
+            margin-bottom: 1rem;
+            padding: 0.875rem 1rem;
+            border-radius: 12px;
+            border: 1px solid #e2e8f0;
+            background: #f8fafc;
+            color: #1e293b;
+            outline: none;
+            font-size: 0.95rem;
+            transition: all 0.2s ease;
+        }
+
+        .authInput:focus {
+            border-color: var(--brand-primary);
+            box-shadow: 0 0 0 4px var(--brand-glow);
+            background: white;
+        }
+
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.04);
+        }
+
+        .sidebar-btn {
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            color: #64748b;
+        }
+
+        .sidebar-btn:hover {
+            color: var(--brand-primary);
+            background: #f1f5f9;
+        }
+
+        .sidebar-btn.active {
+            background: #eff6ff;
+            color: var(--brand-primary);
+        }
+
+        .sidebar-btn.active::after {
+            content: '';
+            position: absolute;
+            right: 12px;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--brand-primary);
+            box-shadow: 0 0 10px var(--brand-primary);
+        }
+
+        .hazard-glow {
+            animation: hazard-pulse 1.5s infinite;
+        }
+
+        @keyframes hazard-pulse {
+            0%, 100% { box-shadow: 0 0 20px rgba(239, 68, 68, 0.2); }
+            50% { box-shadow: 0 0 40px rgba(239, 68, 68, 0.6); }
+        }
+
+        #map-container {
+            height: 100%;
+            width: 100%;
+            border-radius: 2rem;
+            z-index: 1;
+        }
+
+        .leaflet-container { background: #e5e7eb !important; }
+        .leaflet-routing-container { display: none !important; }
+
+        .nav-input {
+            background: #f1f5f9;
+            border: 1px solid #e2e8f0;
+            outline: none;
+            transition: all 0.3s;
+        }
+        .nav-input:focus {
+            border-color: var(--brand-primary);
+            background: white;
+            box-shadow: 0 0 0 4px var(--brand-glow);
+        }
+
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+
+        .video-container {
+            position: relative;
+            border-radius: 2rem;
+            overflow: hidden;
+            background: #000;
+        }
+
+        /* Voice Animation */
+        .voice-active {
+            animation: pulse-ring 1.25s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+        }
+        @keyframes pulse-ring {
+            0% { transform: scale(.8); opacity: 0.5; }
+            100% { transform: scale(1.5); opacity: 0; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- AUTH SCREEN -->
+<div id="auth-screen" class="fixed inset-0 flex items-center justify-center z-[9999] bg-[#f8fafc]">
+    <div class="absolute inset-0 overflow-hidden pointer-events-none opacity-20">
+        <div class="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-400 blur-[120px] rounded-full"></div>
+        <div class="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-indigo-400 blur-[120px] rounded-full"></div>
+    </div>
+
+    <div class="relative bg-white p-10 rounded-[32px] w-[420px] shadow-2xl border border-white/50">
+        <div class="flex flex-col items-center mb-8">
+            <div class="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mb-4 shadow-lg shadow-blue-200">
+                <i data-lucide="shield-check" class="text-white" size="32"></i>
+            </div>
+            <h2 id="auth-title" class="text-3xl font-extrabold text-slate-900 tracking-tight">VisionAI Hub</h2>
+            <p class="text-slate-500 text-sm mt-1">Smart Fleet Management System</p>
+        </div>
+
+        <div id="login-card" class="space-y-2">
+            <input id="login-vname" placeholder="Vehicle Name" class="authInput">
+            <input id="login-pass" type="password" placeholder="Password" class="authInput">
+            <button onclick="loginUser()" class="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-bold transition-all shadow-lg shadow-blue-100 mt-2">
+                Sign In
+            </button>
+            <div class="pt-6 flex justify-between text-sm font-semibold">
+                <a href="#" onclick="showRegister()" class="text-blue-600 hover:text-blue-800">New Vehicle?</a>
+                <a href="#" onclick="showForgot()" class="text-slate-400 hover:text-slate-600">Forgot Code?</a>
+            </div>
+        </div>
+
+        <div id="register-card" class="hidden space-y-2">
+            <input id="reg-vname" placeholder="Vehicle ID" class="authInput">
+            <input id="reg-driver" placeholder="Driver Full Name" class="authInput">
+            <input id="reg-phone" placeholder="Contact Number" class="authInput">
+            <input id="reg-pass" type="password" placeholder="Set Password" class="authInput">
+            <button onclick="registerUser()" class="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-bold transition-all shadow-lg shadow-blue-100 mt-2">
+                Register Fleet
+            </button>
+            <p class="text-center pt-6 text-sm">
+                <a href="#" onclick="showLogin()" class="text-slate-400 hover:text-slate-600 font-semibold">Back to Login</a>
+            </p>
+        </div>
+
+        <div id="forgot-card" class="hidden space-y-2">
+            <input id="forgot-phone" placeholder="Registered Phone" class="authInput">
+            <input id="forgot-newpass" type="password" placeholder="New Password" class="authInput">
+            <button onclick="resetPassword()" class="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-bold transition-all shadow-lg shadow-blue-100 mt-2">
+                Update Security
+            </button>
+            <p class="text-center pt-6 text-sm">
+                <a href="#" onclick="showLogin()" class="text-slate-400 hover:text-slate-600 font-semibold">Cancel</a>
+            </p>
+        </div>
+    </div>
+</div>
+
+<!-- MAIN APP -->
+<div id="main-app" class="hidden h-screen overflow-hidden">
+    
+    <!-- SIDEBAR -->
+    <aside class="w-80 bg-white p-8 flex flex-col border-r border-slate-100 z-50">
+        <div class="flex items-center gap-3 mb-12">
+            <div class="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center">
+                <i data-lucide="activity" class="text-white" size="20"></i>
+            </div>
+            <span class="font-bold text-xl tracking-tight">DriveGuardian AI</span>
+        </div>
+
+        <nav class="flex-1 space-y-2">
+            <button onclick="switchTab('accident')" id="btn-accident" class="sidebar-btn active w-full flex items-center gap-4 px-5 py-4 rounded-2xl text-sm font-bold">
+                <i data-lucide="zap" size="20"></i> Collision Shield
+            </button>
+            <button onclick="switchTab('route')" id="btn-route" class="sidebar-btn w-full flex items-center gap-4 px-5 py-4 rounded-2xl text-sm font-bold">
+                <i data-lucide="navigation" size="20"></i> Live Navigation
+            </button>
+            <button onclick="switchTab('control')" id="btn-control" class="sidebar-btn w-full flex items-center gap-4 px-5 py-4 rounded-2xl text-sm font-bold">
+                <i data-lucide="layout-grid" size="20"></i> Command Center
+            </button>
+            <button onclick="switchTab('drowsy')" id="btn-drowsy" class="sidebar-btn w-full flex items-center gap-4 px-5 py-4 rounded-2xl text-sm font-bold">
+                <i data-lucide="eye" size="20"></i> Guardian AI
+            </button>
+        </nav>
+
+        <div class="mt-auto">
+            <div class="p-5 bg-slate-50 rounded-[24px] border border-slate-100 mb-4">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-[11px] font-extrabold text-slate-400 uppercase tracking-widest">System Health</span>
+                    <div id="status-dot" class="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]"></div>
+                </div>
+                <p id="status-text" class="text-sm font-bold text-slate-700">All Systems Online</p>
+            </div>
+            
+            <!-- Voice Control Button -->
+            <button onclick="toggleVoiceRecognition()" id="voice-btn" class="w-full py-4 bg-slate-900 text-white rounded-2xl font-bold flex items-center justify-center gap-3 transition-all relative overflow-hidden">
+                <span id="voice-pulse" class="absolute inset-0 bg-blue-500/20 hidden voice-active"></span>
+                <i data-lucide="mic" id="mic-icon" size="20"></i>
+                <span id="voice-label">Voice Control</span>
+            </button>
+        </div>
+    </aside>
+
+    <!-- MAIN CONTENT -->
+    <main class="flex-1 relative overflow-hidden bg-slate-50 flex flex-col">
+        
+        <!-- ACCIDENT TAB -->
+        <section id="tab-accident" class="h-full p-8 flex flex-col gap-6">
+            <header class="flex justify-between items-center">
+                <div>
+                    <h2 class="text-4xl font-extrabold tracking-tight">Collision Shield</h2>
+                    <p class="text-slate-500 font-medium"></p>
+                </div>
+                <div class="flex gap-3">
+                    <button onclick="startAccidentAI()" class="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-bold flex items-center gap-3 transition-all shadow-lg shadow-blue-100">
+                        <i data-lucide="play-circle" size="20"></i> Activate AI
+                    </button>
+                    <button onclick="stopAccidentAI()" class="px-8 py-3 bg-white text-slate-600 rounded-2xl font-bold border border-slate-200 hover:bg-slate-50 transition-all">
+                        Standby
+                    </button>
+                </div>
+            </header>
+
+            <div class="flex-1 grid grid-cols-12 gap-8 min-h-0">
+                <div class="col-span-8 video-container shadow-2xl">
+                    <video id="video-accident" autoplay muted playsinline class="w-full h-full object-cover"></video>
+                    
+                    <div id="alertBox-accident" class="hidden absolute top-10 left-1/2 -translate-x-1/2 px-10 py-4 rounded-full font-extrabold tracking-wider text-sm text-white shadow-2xl backdrop-blur-md">
+                        SCANNING...
+                    </div>
+
+                    <div class="absolute bottom-8 left-8 flex gap-4">
+                        <div class="bg-white/90 backdrop-blur px-6 py-4 rounded-2xl border border-white/20 shadow-xl">
+                            <p class="text-[10px] uppercase text-slate-500 font-extrabold tracking-widest mb-1">Risk Factor</p>
+                            <p id="risk-score" class="text-3xl font-black text-blue-600">0%</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-span-4 bg-white rounded-[32px] p-8 flex flex-col border border-slate-100 shadow-sm">
+                    <div class="flex items-center gap-3 mb-6">
+                        <i data-lucide="terminal" class="text-slate-400" size="18"></i>
+                        <h3 class="text-sm font-extrabold uppercase tracking-widest text-slate-400">Live AI Feed</h3>
+                    </div>
+                    <div id="log-accident" class="flex-1 overflow-y-auto space-y-4 pr-2">
+                        <div class="text-xs text-slate-400 font-medium p-3 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                            Awaiting engine start...
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ROUTE NAVIGATION TAB -->
+        <section id="tab-route" class="hidden h-full p-8 flex flex-col gap-6">
+            <header class="flex justify-between items-center">
+                <div>
+                    <h2 class="text-4xl font-extrabold tracking-tight">Smart Path</h2>
+                    <p class="text-slate-500 font-medium"></p>
+                </div>
+                <div id="trip-progress" class="hidden bg-blue-600 px-8 py-4 rounded-3xl flex items-center gap-8 shadow-xl shadow-blue-100">
+                    <div class="text-center">
+                        <p class="text-[10px] uppercase text-blue-200 font-extrabold tracking-widest">Mode</p>
+                        <p id="trip-status" class="text-white font-black tracking-tight">EN ROUTE</p>
+                    </div>
+                    <div class="w-px h-8 bg-white/20"></div>
+                    <div class="text-center">
+                        <p class="text-[10px] uppercase text-blue-200 font-extrabold tracking-widest">Arrival</p>
+                        <p id="dist-remaining" class="text-white font-black tracking-tight">-- km</p>
+                    </div>
+                </div>
+            </header>
+            
+            <div class="flex-1 flex gap-8 min-h-0">
+                <div class="w-80 flex flex-col gap-6">
+                    <div class="bg-white p-6 rounded-[32px] shadow-sm border border-slate-100 space-y-6">
+                        <div class="p-4 bg-blue-50 border border-blue-100 rounded-[20px] flex items-center gap-4">
+                            <div class="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center shadow-md">
+                                <i data-lucide="map-pin" class="text-white" size="18"></i>
+                            </div>
+                            <div class="text-xs">
+                                <span class="text-slate-400 block font-bold mb-0.5">Origin</span>
+                                <span id="current-loc-status" class="font-extrabold text-slate-900 truncate block w-32">Locating...</span>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Destination</label>
+                            <input id="route-dest" type="text" placeholder="Where to?" class="w-full px-5 py-4 rounded-2xl nav-input text-sm font-bold text-slate-700">
+                        </div>
+
+                        <button id="btn-calc" onclick="calculateRoute()" class="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-bold flex items-center justify-center gap-3 transition-all shadow-lg shadow-blue-50">
+                            <i data-lucide="search" size="18"></i> Find Route
+                        </button>
+                        
+                        <button id="btn-start-trip" onclick="startLiveNavigation()" class="hidden w-full py-4 bg-emerald-500 hover:bg-emerald-600 text-white rounded-2xl font-bold items-center justify-center gap-3 transition-all shadow-lg shadow-emerald-50">
+                            <i data-lucide="play" size="18"></i> Start Trip
+                        </button>
+                    </div>
+
+                    <div id="route-suggestions" class="flex-1 bg-white rounded-[32px] p-6 overflow-y-auto space-y-4 border border-slate-100 shadow-sm hidden">
+                        <h3 class="text-[10px] font-extrabold uppercase tracking-widest text-slate-400 mb-2">Detected Paths</h3>
+                    </div>
+                </div>
+
+                <div class="flex-1 bg-white rounded-[40px] overflow-hidden relative shadow-inner border border-slate-100">
+                    <div id="map-container"></div>
+                    <div class="absolute top-8 right-8 z-[1000]">
+    <button onclick="toggleMapView()" 
+        class="px-5 py-3 bg-white text-slate-700 rounded-2xl shadow-lg border font-bold hover:bg-blue-600 hover:text-white transition-all">
+        🛰 Satellite
+    </button>
+</div>
+                    <div class="absolute bottom-8 right-8 z-[1000]">
+                        <button onclick="centerMap()" class="w-16 h-16 bg-white text-blue-600 rounded-3xl flex items-center justify-center hover:bg-blue-600 hover:text-white transition-all shadow-2xl border border-slate-100">
+                            <i data-lucide="locate" size="24"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- DASHBOARD TAB -->
+        <section id="tab-control" class="hidden h-full p-8">
+            <div class="h-full bg-white rounded-[40px] shadow-sm border border-slate-100 overflow-hidden">
+                <iframe src="/control" class="w-full h-full border-none"></iframe>
+            </div>
+        </section>
+
+        <!-- DROWSINESS TAB -->
+        <section id="tab-drowsy" class="hidden h-full p-8">
+            <div class="h-full bg-white rounded-[40px] shadow-sm border border-slate-100 overflow-hidden">
+                <iframe src="/dros" class="w-full h-full border-none"></iframe>
+            </div>
+        </section>
+    </main>
+</div>
+
+<script>
+lucide.createIcons();
+
+/* --- STATE --- */
+let activeTab = 'accident';
+let map = null;
+let routingControl = null;
+let normalLayer, satelliteLayer;
+let isSatellite = false;
+
+let carMarker = null;
+let watchId = null;
+let currentPos = null;
+let destinationPos = null;
+let totalDistance = 0;
+let accidentRunning = false;
+let accidentStream = null;
+let isNavigating = false;
+let lastSpeech = "";
+
+/* --- VOICE STATE --- */
+let isListening = false;
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition = null;
+
+if (SpeechRecognition) {
+    recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.lang = 'en-US';
+    recognition.interimResults = false;
+
+    recognition.onstart = () => {
+        isListening = true;
+        updateVoiceUI();
+    };
+
+    recognition.onend = () => {
+        isListening = false;
+        updateVoiceUI();
+    };
+
+    recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript.toLowerCase();
+        console.log("Voice Command:", transcript);
+        handleVoiceCommand(transcript);
+    };
+
+    recognition.onerror = (event) => {
+        console.error("Speech Error", event.error);
+        isListening = false;
+        updateVoiceUI();
+    };
+}
+
+function updateVoiceUI() {
+    const btn = document.getElementById('voice-btn');
+    const label = document.getElementById('voice-label');
+    const pulse = document.getElementById('voice-pulse');
+    
+    if (isListening) {
+        btn.classList.add('bg-blue-600');
+        btn.classList.remove('bg-slate-900');
+        label.textContent = "Listening...";
+        pulse.classList.remove('hidden');
+    } else {
+        btn.classList.remove('bg-blue-600');
+        btn.classList.add('bg-slate-900');
+        label.textContent = "Voice Control";
+        pulse.classList.add('hidden');
+    }
+}
+
+function toggleVoiceRecognition() {
+    if (!recognition) return alert("Speech recognition not supported in this browser.");
+    if (isListening) {
+        recognition.stop();
+    } else {
+        recognition.start();
+    }
+}
+
+async function handleVoiceCommand(cmd) {
+    // 1. Navigation Commands
+    if (cmd.includes("go to") || cmd.includes("navigate to") || cmd.includes("destination")) {
+        const dest = cmd.replace(/go to|navigate to|destination/g, "").trim();
+        if (dest) {
+            switchTab('route');
+            document.getElementById('route-dest').value = dest;
+            speak(`Searching for route to ${dest}`);
+            await calculateRoute();
+        }
+    }
+    // 2. Tab Switching
+    else if (cmd.includes("show accident") || cmd.includes("collision shield")) {
+        switchTab('accident');
+        speak("Switching to Collision Shield");
+    }
+    else if (cmd.includes("show navigation") || cmd.includes("show map") || cmd.includes("smart path")) {
+        switchTab('route');
+        speak("Opening navigation map");
+    }
+    else if (cmd.includes("show control") || cmd.includes("show dashboard")) {
+        switchTab('control');
+        speak("Opening control panel");
+    }
+    else if (cmd.includes("show drowsy") || cmd.includes("eye vigilance")) {
+        switchTab('drowsy');
+        speak("Switching to eye vigilance monitor");
+    }
+    // 3. AI Controls
+    else if (cmd.includes("start ai") || cmd.includes("activate ai") || cmd.includes("start scanning")) {
+        if (activeTab === 'accident') {
+            startAccidentAI();
+            speak("Accident detection activated");
+        }
+    }
+    else if (cmd.includes("stop ai") || cmd.includes("stop scanning") || cmd.includes("standby")) {
+        if (activeTab === 'accident') {
+            stopAccidentAI();
+            speak("AI systems on standby");
+        }
+    }
+    // 4. Interaction
+    else if (cmd.includes("hello") || cmd.includes("vision os")) {
+        speak("Hello! I am Vision O S. How can I help you drive today?");
+    }
+    else {
+        speak("I heard " + cmd + ". Try commands like go to Mumbai or show map.");
+    }
+}
+
+/* --- UI ELEMENTS --- */
+const statusDot = document.getElementById('status-dot');
+const statusText = document.getElementById('status-text');
+const canvas = document.createElement('canvas');
+const ctx = canvas.getContext('2d');
+
+function switchTab(tab) {
+    if (activeTab === 'accident' && accidentRunning) stopAccidentAI();
+
+    activeTab = tab;
+    ['accident', 'route', 'control', 'drowsy'].forEach(t => {
+        document.getElementById(`tab-${t}`).classList.toggle('hidden', t !== tab);
+        const btn = document.getElementById(`btn-${t}`);
+        if(btn) btn.classList.toggle('active', t === tab);
+    });
+
+    if (tab === 'route') {
+        if (!map) initMap();
+        startGpsTracking();
+    } else {
+        stopGpsTracking();
+    }
+    if (map) setTimeout(() => map.invalidateSize(), 200);
+}
+
+function initMap() {
+    map = L.map('map-container', { zoomControl: false, attributionControl: false }).setView([20, 78], 5);
+   // Normal Map
+normalLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors'
+}).addTo(map);
+
+// Satellite Map
+satelliteLayer = L.tileLayer(
+    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    {
+        attribution: 'Tiles © Esri'
+    }
+);
+
+    const carIcon = L.divIcon({
+        html: '<div style="background:#2563eb; width:24px; height:24px; border:4px solid white; border-radius:50%; box-shadow:0 8px 16px rgba(37,99,235,0.4); position:relative;"></div>',
+        className: 'custom-car-icon'
+    });
+    carMarker = L.marker([20, 78], { icon: carIcon }).addTo(map);
+}
+
+/* --- GPS TRACKING --- */
+function startGpsTracking() {
+    if (!navigator.geolocation) {
+        speak("Geolocation is not supported by your device.");
+        return;
+    }
+
+    watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+            const lat = pos.coords.latitude;
+            const lng = pos.coords.longitude;
+            currentPos = [lat, lng];
+            
+            document.getElementById('current-loc-status').textContent = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+            
+            if (carMarker) {
+                carMarker.setLatLng(currentPos);
+                if (isNavigating) map.panTo(currentPos);
+                else if (map.getZoom() < 10) map.setView(currentPos, 15);
+            }
+
+            if (isNavigating && routingControl) {
+                const distanceToDest = map.distance(currentPos, destinationPos) / 1000;
+                document.getElementById('dist-remaining').textContent = distanceToDest.toFixed(1) + " km";
+                document.getElementById('trip-status').textContent = "LIVE";
+                
+                if (distanceToDest < 0.05) {
+                    speak("You have arrived at your destination.");
+                    stopLiveNavigation();
+                }
+            }
+        },
+        (err) => {
+            document.getElementById('current-loc-status').textContent = "GPS Off";
+        },
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
+    );
+}
+
+function stopGpsTracking() {
+    if (watchId) navigator.geolocation.clearWatch(watchId);
+}
+
+function centerMap() {
+    if (currentPos) map.setView(currentPos, 16);
+}
+
+/* --- ROUTING --- */
+async function geocode(address) {
+    try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`);
+        const data = await res.json();
+        return data && data.length > 0 ? [data[0].lat, data[0].lon] : null;
+    } catch(e) { return null; }
+}
+
+async function calculateRoute() {
+    const dest = document.getElementById('route-dest').value;
+    if (!dest) return speak("Please enter a destination.");
+    if (!currentPos) return speak("Awaiting GPS...");
+
+    const destCoords = await geocode(dest);
+    if (!destCoords) return speak("Location not found.");
+    destinationPos = destCoords;
+
+    if (routingControl) map.removeControl(routingControl);
+
+    routingControl = L.Routing.control({
+        waypoints: [L.latLng(currentPos), L.latLng(destCoords)],
+        routeWhileDragging: false,
+        addWaypoints: false,
+        showAlternatives: true,
+        altLineOptions: {
+            styles: [{color: '#94a3b8', opacity: 0.6, weight: 6, dashArray: '10, 10'}]
+        },
+        lineOptions: {
+            styles: [{color: '#2563eb', opacity: 0.8, weight: 8}]
+        },
+        createMarker: () => null
+    }).addTo(map);
+
+    routingControl.on('routesfound', function(e) {
+        const routes = e.routes;
+        totalDistance = routes[0].summary.totalDistance / 1000;
+        
+        const suggestionsBox = document.getElementById('route-suggestions');
+        suggestionsBox.innerHTML = '<h3 class="text-[10px] font-extrabold uppercase tracking-widest text-slate-400 mb-4">Route Options</h3>';
+        suggestionsBox.classList.remove('hidden');
+
+        routes.forEach((r, idx) => {
+            const div = document.createElement('div');
+            const dist = (r.summary.totalDistance/1000).toFixed(1);
+            div.className = `p-5 rounded-2xl border transition-all cursor-pointer ${idx === 0 ? 'bg-blue-50 border-blue-200 shadow-sm' : 'bg-white border-slate-100 hover:border-blue-100'}`;
+            div.innerHTML = `
+                <div class="flex justify-between items-center mb-1">
+                    <span class="text-sm font-bold text-slate-800">${idx === 0 ? 'Optimal' : 'Alternative'}</span>
+                    <span class="text-xs font-extrabold text-blue-600">${dist} km</span>
+                </div>
+                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">${idx === 0 ? 'Fastest path detected' : 'Secondary route available'}</p>
+            `;
+            div.onclick = () => { if(idx === 0) startLiveNavigation(); };
+            suggestionsBox.appendChild(div);
+        });
+
+        document.getElementById('btn-start-trip').classList.replace('hidden', 'flex');
+        map.fitBounds(L.latLngBounds(currentPos, destCoords), { padding: [100, 100] });
+    });
+}
+
+function startLiveNavigation() {
+    isNavigating = true;
+    document.getElementById('trip-progress').classList.remove('hidden');
+    document.getElementById('btn-start-trip').classList.add('hidden');
+    speak(`Navigation active. Distance ${totalDistance.toFixed(1)} km.`);
+}
+
+function stopLiveNavigation() {
+    isNavigating = false;
+    document.getElementById('trip-progress').classList.add('hidden');
+}
+
+/* --- ACCIDENT AI --- */
+async function startAccidentAI() {
+    if (accidentRunning) return;
+    accidentRunning = true;
+    statusDot.className = "w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse shadow-[0_0_10px_rgba(37,99,235,0.5)]";
+    statusText.textContent = "AI Scanning Active";
+    try {
+        accidentStream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+        document.getElementById('video-accident').srcObject = accidentStream;
+        accidentLoop();
+    } catch (err) { accidentRunning = false; }
+}
+
+function stopAccidentAI() {
+    accidentRunning = false;
+    statusDot.className = "w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]";
+    if (accidentStream) accidentStream.getTracks().forEach(t => t.stop());
+    document.getElementById('video-accident').srcObject = null;
+    document.getElementById('alertBox-accident').classList.add('hidden');
+    statusText.textContent = "All Systems Online";
+}
+
+async function accidentLoop() {
+    if (!accidentRunning) return;
+    try {
+        canvas.width = 640; canvas.height = 480;
+        ctx.drawImage(document.getElementById('video-accident'), 0, 0, 640, 480);
+        const frame = canvas.toDataURL("image/jpeg", 0.6);
+        const res = await fetch("http://192.168.31.148:5000/api/risk-check", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ frame })
+        });
+        const data = await res.json();
+        const alertBox = document.getElementById('alertBox-accident');
+        document.getElementById('risk-score').textContent = data.risk_score + "%";
+        alertBox.textContent = data.instruction.toUpperCase();
+        
+        if(data.is_hazard) {
+            alertBox.className = "absolute top-10 left-1/2 -translate-x-1/2 px-10 py-4 rounded-full font-black text-sm bg-red-600 text-white shadow-2xl hazard-glow flex items-center gap-2";
+            document.getElementById('video-accident').parentElement.classList.add('hazard-glow');
+        } else {
+            alertBox.className = "absolute top-10 left-1/2 -translate-x-1/2 px-10 py-4 rounded-full font-black text-sm bg-emerald-500/90 text-white flex items-center gap-2 shadow-xl";
+            document.getElementById('video-accident').parentElement.classList.remove('hazard-glow');
+        }
+        
+        alertBox.classList.remove('hidden');
+        speak(data.voice_response);
+    } catch (e) {}
+    setTimeout(accidentLoop, 1000);
+}
+
+/* --- VOICE OUTPUT --- */
+function speak(text) {
+    if (!text || text === lastSpeech) return;
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = 1.0; u.pitch = 1.0;
+    window.speechSynthesis.speak(u);
+    lastSpeech = text;
+
+    if (activeTab === 'accident') {
+        const p = document.createElement('div');
+        p.className = "p-4 rounded-2xl bg-slate-50 border border-slate-100 text-xs font-bold text-slate-700 animate-in slide-in-from-right-4";
+        p.innerHTML = `<span class="text-[10px] text-slate-400 block mb-1 uppercase font-extrabold tracking-tighter">${new Date().toLocaleTimeString()}</span>${text}`;
+        const log = document.getElementById('log-accident');
+        if (log) log.prepend(p);
+    }
+}
+
+/* --- AUTH ACTIONS --- */
+function showRegister(){
+    document.getElementById("login-card").classList.add("hidden");
+    document.getElementById("register-card").classList.remove("hidden");
+    document.getElementById("forgot-card").classList.add("hidden");
+    document.getElementById("auth-title").textContent = "Register Fleet";
+}
+function showLogin(){
+    document.getElementById("login-card").classList.remove("hidden");
+    document.getElementById("register-card").classList.add("hidden");
+    document.getElementById("forgot-card").classList.add("hidden");
+    document.getElementById("auth-title").textContent = "VisionAI Hub";
+}
+function showForgot(){
+    document.getElementById("login-card").classList.add("hidden");
+    document.getElementById("register-card").classList.add("hidden");
+    document.getElementById("forgot-card").classList.remove("hidden");
+    document.getElementById("auth-title").textContent = "Recover Access";
+}
+
+function registerUser(){
+    let vname=document.getElementById("reg-vname").value;
+    let driver=document.getElementById("reg-driver").value;
+    let phone=document.getElementById("reg-phone").value;
+    let pass=document.getElementById("reg-pass").value;
+    if(!vname||!driver||!phone||!pass) return alert("All fields are required");
+    let user={ vehicle:vname, driver:driver, phone:phone, pass:pass };
+    localStorage.setItem("vision_"+vname, JSON.stringify(user));
+    alert("Fleet unit registered successfully.");
+    showLogin();
+}
+
+function loginUser(){
+    let vname=document.getElementById("login-vname").value;
+    let pass=document.getElementById("login-pass").value;
+    let data=localStorage.getItem("vision_"+vname);
+    if(!data) return alert("Vehicle ID not found");
+    let user=JSON.parse(data);
+    if(user.pass!==pass) return alert("Security code incorrect");
+    document.getElementById("auth-screen").style.display="none";
+    document.getElementById("main-app").classList.remove("hidden");
+    document.getElementById("main-app").classList.add("flex");
+    speak("System login successful. Welcome back, driver.");
+}
+
+function resetPassword(){
+    let phone=document.getElementById("forgot-phone").value;
+    let newpass=document.getElementById("forgot-newpass").value;
+    for(let i=0;i<localStorage.length;i++){
+        let key=localStorage.key(i);
+        if(key.startsWith("vision_")){
+            let user=JSON.parse(localStorage.getItem(key));
+            if(user.phone===phone){
+                user.pass=newpass;
+                localStorage.setItem(key,JSON.stringify(user));
+                alert("Security code updated.");
+                showLogin();
+                return;
+            }
+        }
+    }
+    alert("Phone number not linked to any fleet.");
+}
+function toggleMapView() {
+    if (!map) return;
+
+    if (isSatellite) {
+        map.removeLayer(satelliteLayer);
+        map.addLayer(normalLayer);
+    } else {
+        map.removeLayer(normalLayer);
+        map.addLayer(satelliteLayer);
+    }
+
+    isSatellite = !isSatellite;
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Guardian AI - Smart Driver Monitor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- MediaPipe FaceMesh Libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+
+    <style>
+        :root { --primary: #2563eb; }
+        body { background: #f8fafc; font-family: system-ui, -apple-system, sans-serif; overflow: hidden; }
+        .mirror { transform: scaleX(-1); }
+        .glitch-text { animation: pulse 2s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+        .alarm-bg { background: #331111; animation: flash-red 0.8s infinite; }
+        @keyframes flash-red { 0%, 100% { background: #331111; } 50% { background: #441111; } }
+        .glass-panel { background: white; border: 1px solid #e2e8f0; border-radius: 1.5rem; }
+        .stat-bar { height: 6px; border-radius: 3px; background: #f1f5f9; position: relative; overflow: hidden; }
+        .stat-progress { height: 100%; transition: width 0.1s ease-out; }
+    </style>
+</head>
+<body class="h-screen flex flex-col p-4">
+
+    <!-- Header Section (Matches Image Layout) -->
+    <header class="glass-panel p-4 flex justify-between items-center mb-4 shadow-sm">
+        <div class="flex items-center gap-3">
+            <div class="bg-blue-600 p-2 rounded-lg text-white">
+                <i data-lucide="shield-check" class="w-6 h-6"></i>
+            </div>
+            <div>
+                <h1 class="font-black text-slate-900 tracking-tight text-lg uppercase">Guardian <span class="text-blue-600">v5.0</span></h1>
+                <div class="flex items-center gap-2">
+                    <span id="status-dot" class="w-2 h-2 rounded-full bg-slate-300"></span>
+                    <span id="status-text" class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Offline</span>
+                </div>
+            </div>
+        </div>
+        <div class="text-right">
+            <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Sleep Counter</div>
+            <div id="timer" class="text-3xl font-mono font-black text-slate-900">0.0s</div>
+        </div>
+    </header>
+
+    <main class="flex-1 flex flex-col md:flex-row gap-4 overflow-hidden">
+        <!-- Sidebar Diagnostics -->
+        <aside class="w-full md:w-72 flex flex-col gap-4">
+            <div class="glass-panel p-6 flex flex-col h-full shadow-sm">
+                <h2 class="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] mb-8">Live Diagnostics</h2>
+                
+                <div class="space-y-10 flex-1">
+                    <!-- EAR Value -->
+                    <div class="space-y-3">
+                        <div class="flex justify-between items-end">
+                            <span class="text-[11px] font-bold text-slate-500 uppercase">EAR Value</span>
+                            <span id="ear-val" class="text-blue-600 font-mono font-bold text-sm">0.00</span>
+                        </div>
+                        <div class="stat-bar">
+                            <div id="ear-bar" class="stat-progress bg-blue-500 w-0"></div>
+                        </div>
+                    </div>
+
+                    <!-- Mesh Lock -->
+                    <div class="space-y-3">
+                        <div class="flex justify-between items-end">
+                            <span class="text-[11px] font-bold text-slate-500 uppercase">Mesh Lock</span>
+                            <span id="mesh-stat" class="text-slate-400 font-bold text-sm italic">WAITING</span>
+                        </div>
+                        <div class="stat-bar">
+                            <div id="mesh-bar" class="stat-progress bg-emerald-500 w-0"></div>
+                        </div>
+                    </div>
+
+                    <!-- System Info -->
+                    <div class="p-5 bg-blue-50 rounded-2xl border border-blue-100">
+                        <p class="text-[11px] leading-relaxed text-blue-700 font-medium italic">
+                            System will trigger a vocal alarm if eyes are closed (EAR < 0.22) for > 3.0s.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="mt-8">
+                    <button id="startBtn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-4 rounded-xl shadow-lg transition-all flex items-center justify-center gap-3 text-xs tracking-widest">
+                        <i data-lucide="power" class="w-4 h-4"></i>
+                        ACTIVATE
+                    </button>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Display (Video/Alarm) -->
+        <section class="flex-1 relative bg-slate-900 rounded-[2rem] overflow-hidden shadow-2xl border-8 border-white">
+            <video id="video" class="absolute inset-0 w-full h-full object-cover mirror opacity-0" playsinline></video>
+            <canvas id="canvas" class="absolute inset-0 w-full h-full mirror"></canvas>
+            
+            <!-- Loading Overlay -->
+            <div id="loader" class="absolute inset-0 bg-slate-900 z-10 flex flex-col items-center justify-center text-white hidden">
+                <div class="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+                <p class="text-xs font-black tracking-[0.2em] uppercase glitch-text text-blue-400">Syncing Optical Feed...</p>
+            </div>
+
+            <!-- Alarm Overlay (Matches Image edd8e7) -->
+            <div id="alarm" class="absolute inset-0 z-50 alarm-bg hidden flex flex-col items-center justify-center text-white p-6">
+                <i data-lucide="alert-triangle" class="w-32 h-32 mb-8"></i>
+                <h2 class="text-8xl font-black mb-2 tracking-tighter">WAKE UP!</h2>
+                <p class="text-2xl font-bold uppercase tracking-[0.3em] opacity-60 mb-12">Guardian AI Alert</p>
+                
+                <div id="auto-restart-ui" class="flex flex-col items-center gap-4">
+                    <button onclick="stopAlarm()" class="px-16 py-5 bg-white text-black rounded-2xl font-black text-sm tracking-widest shadow-2xl hover:scale-105 transition-transform uppercase">
+                        I Am Awake
+                    </button>
+                    <p class="text-[10px] uppercase tracking-widest opacity-40">Self-resetting in progress...</p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        lucide.createIcons();
+
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const timerEl = document.getElementById('timer');
+        const earValEl = document.getElementById('ear-val');
+        const earBar = document.getElementById('ear-bar');
+        const meshStat = document.getElementById('mesh-stat');
+        const meshBar = document.getElementById('mesh-bar');
+        const alarmEl = document.getElementById('alarm');
+        const startBtn = document.getElementById('startBtn');
+        const loader = document.getElementById('loader');
+        const statusText = document.getElementById('status-text');
+        const statusDot = document.getElementById('status-dot');
+
+        let faceMesh;
+        let camera;
+        let eyesClosedStartTime = null;
+        let isAlarmActive = false;
+        let lastFrameTime = Date.now();
+        let isActive = false;
+        
+        const EAR_THRESHOLD = 0.22; 
+        const CLOSED_DURATION_MS = 3000;
+        const AUTO_RESTART_DELAY = 4000; // Alarm stays up for 4s before auto-reset
+
+        const LEFT_EYE = [362, 385, 387, 263, 373, 380];
+        const RIGHT_EYE = [33, 160, 158, 133, 153, 144];
+
+        function getDistance(p1, p2) {
+            return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
+        }
+
+        function calculateEAR(landmarks, eyeIndices) {
+            const v1 = getDistance(landmarks[eyeIndices[1]], landmarks[eyeIndices[5]]);
+            const v2 = getDistance(landmarks[eyeIndices[2]], landmarks[eyeIndices[4]]);
+            const h = getDistance(landmarks[eyeIndices[0]], landmarks[eyeIndices[3]]);
+            return (v1 + v2) / (2.0 * h);
+        }
+
+        async function init() {
+            if (isActive) return;
+            
+            isActive = true;
+            startBtn.disabled = true;
+            startBtn.innerHTML = `<span class="animate-pulse">SYSTEM ACTIVE</span>`;
+            loader.classList.remove('hidden');
+            statusText.innerText = "Connecting Feed...";
+
+            faceMesh = new FaceMesh({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+            });
+
+            faceMesh.setOptions({
+                maxNumFaces: 1,
+                refineLandmarks: true,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
+
+            faceMesh.onResults(onResults);
+
+            camera = new Camera(video, {
+                onFrame: async () => {
+                    await faceMesh.send({image: video});
+                    lastFrameTime = Date.now();
+                },
+                width: 1280,
+                height: 720
+            });
+
+            camera.start().then(() => {
+                loader.classList.add('hidden');
+                statusText.innerText = "Monitoring Active";
+                statusDot.classList.replace('bg-slate-300', 'bg-emerald-500');
+                statusDot.classList.add('shadow-[0_0_10px_#10b981]');
+                speak("Guardian 5.0 initialized. Automatic scanning enabled.");
+            });
+        }
+
+        function onResults(results) {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            ctx.save();
+            ctx.scale(-1, 1);
+            ctx.translate(-canvas.width, 0);
+            ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+            ctx.restore();
+
+            if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+                const landmarks = results.multiFaceLandmarks[0];
+                
+                meshStat.innerText = "YES";
+                meshStat.classList.replace('text-slate-400', 'text-emerald-500');
+                meshBar.style.width = "100%";
+
+                const leftEAR = calculateEAR(landmarks, LEFT_EYE);
+                const rightEAR = calculateEAR(landmarks, RIGHT_EYE);
+                const avgEAR = (leftEAR + rightEAR) / 2;
+
+                earValEl.innerText = avgEAR.toFixed(2);
+                earBar.style.width = `${Math.min(avgEAR * 250, 100)}%`;
+                earBar.style.backgroundColor = avgEAR < EAR_THRESHOLD ? '#ef4444' : '#2563eb';
+
+                // Skip scanning if alarm is showing, but update diagnostics
+                if (isAlarmActive) return;
+
+                if (avgEAR < EAR_THRESHOLD) {
+                    if (!eyesClosedStartTime) eyesClosedStartTime = Date.now();
+                    const duration = (Date.now() - eyesClosedStartTime);
+                    timerEl.innerText = (duration / 1000).toFixed(1) + "s";
+                    timerEl.classList.add('text-red-600');
+
+                    if (duration > CLOSED_DURATION_MS) {
+                        triggerAlarm();
+                    }
+                } else {
+                    eyesClosedStartTime = null;
+                    timerEl.innerText = "0.0s";
+                    timerEl.classList.remove('text-red-600');
+                }
+            } else {
+                meshStat.innerText = "LOST";
+                meshStat.classList.replace('text-emerald-500', 'text-slate-400');
+                meshBar.style.width = "0%";
+            }
+        }
+
+        function triggerAlarm() {
+            if (isAlarmActive) return;
+            isAlarmActive = true;
+            alarmEl.classList.remove('hidden');
+            speak("Attention! Wake up immediately!");
+            
+            if (navigator.vibrate) navigator.vibrate([1000, 500, 1000]);
+
+            // AUTOMATIC RESTART LOGIC
+            // The alarm will automatically hide and restart scanning after 4 seconds
+            setTimeout(() => {
+                if (isAlarmActive) {
+                    console.log("Automatic restart triggered.");
+                    stopAlarm();
+                }
+            }, AUTO_RESTART_DELAY);
+        }
+
+        function stopAlarm() {
+            isAlarmActive = false;
+            alarmEl.classList.add('hidden');
+            eyesClosedStartTime = null;
+            timerEl.innerText = "0.0s";
+            window.speechSynthesis.cancel();
+            speak("Scanning resumed.");
+        }
+
+        function speak(text) {
+            window.speechSynthesis.cancel();
+            const msg = new SpeechSynthesisUtterance(text);
+            msg.pitch = 0.9;
+            msg.rate = 1.0;
+            window.speechSynthesis.speak(msg);
+        }
+
+        // Heartbeat logic to ensure background persistence
+        setInterval(() => {
+            if (isActive && !isAlarmActive && (Date.now() - lastFrameTime > 8000)) {
+                statusText.innerText = "Restarting Feed...";
+                camera.stop().then(() => camera.start());
+                lastFrameTime = Date.now();
+            }
+        }, 5000);
+
+        startBtn.addEventListener('click', init);
+    </script>
+</body>
+</html>
